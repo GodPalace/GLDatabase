@@ -1,7 +1,7 @@
-package com.godpalace.data;
+package com.godpalace.data.database;
 
 import com.godpalace.data.annotation.Data;
-import com.godpalace.data.annotation.Database;
+import com.godpalace.data.annotation.LocalDatabase;
 
 import java.io.*;
 import java.lang.reflect.Field;
@@ -12,14 +12,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-public class FileDatabase {
-    private FileDatabase() {}
+public class FileDatabaseEngine {
+    private FileDatabaseEngine() {}
 
     private static void checkAnnotation(Class<?> clazz) {
-        // TODO: Check if class is annotated with @Database
-        if (!clazz.isAnnotationPresent(Database.class))
+        // TODO: Check if class is annotated with @LocalDatabase
+        if (!clazz.isAnnotationPresent(LocalDatabase.class))
             throw new IllegalArgumentException(
-                    "Class " + clazz.getName() + " is not annotated with @Database");
+                    "Class " + clazz.getName() + " is not annotated with @LocalDatabase");
     }
 
     private static Variable readField(InputStream in) throws Exception {
@@ -124,7 +124,7 @@ public class FileDatabase {
     public static void init(Class<?> clazz, Object instance) throws Exception {
         checkAnnotation(clazz);
 
-        Database db = clazz.getAnnotation(Database.class);
+        LocalDatabase db = clazz.getAnnotation(LocalDatabase.class);
         File file = new File(db.path());
         boolean exists = file.exists() && file.length() > 0;
 

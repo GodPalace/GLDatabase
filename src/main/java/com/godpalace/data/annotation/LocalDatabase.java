@@ -6,7 +6,7 @@ import java.util.concurrent.TimeUnit;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Inherited
-public @interface Database {
+public @interface LocalDatabase {
     String path();
 
     long autoSaveTime() default 0;
