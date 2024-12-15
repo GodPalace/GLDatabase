@@ -1,6 +1,5 @@
 package com.godpalace.data.server;
 
-import com.godpalace.data.database.RequestType;
 import com.godpalace.data.database.ResponseType;
 
 import java.io.*;
@@ -30,6 +29,20 @@ public class RemoteDatabaseServer {
         this.server = ServerSocketChannel.open();
         this.server.socket().bind(address);
 
+        if (databaseFile.exists()) {
+            try (FileInputStream in = new FileInputStream(databaseFile);
+                 GZIPInputStream gin = new GZIPInputStream(in)) {
+
+                Variable var;
+                while ((var = readVariable(gin)) != null) {
+                    database.put(var.name, var.value);
+                }
+            } catch (Exception e) {
+                isRunning = false;
+                throw new RuntimeException(e);
+            }
+        }
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
                 save();
@@ -38,6 +51,14 @@ public class RemoteDatabaseServer {
                 throw new RuntimeException(e);
             }
         }));
+    }
+
+    public void addData(String name, Object value) {
+        database.put(name, value);
+    }
+
+    public void removeData(String name) {
+        database.remove(name);
     }
 
     public void addUser(String name, String password) {
@@ -121,6 +142,7 @@ public class RemoteDatabaseServer {
 
         out.write(nameBytes, 0, nameLength);
         out.write(valueBytes, 0, valueLength);
+        out.flush();
     }
 
     private boolean checkUser(InputStream in) throws Exception {
@@ -159,7 +181,6 @@ public class RemoteDatabaseServer {
     }
 
     public void save() {
-        // TODO: save variables to file
         try (FileOutputStream out = new FileOutputStream(databaseFile);
              GZIPOutputStream gout = new GZIPOutputStream(out)) {
 
@@ -174,71 +195,61 @@ public class RemoteDatabaseServer {
     public void start() {
         isRunning = true;
 
-        if (databaseFile.exists()) {
-            try (FileInputStream in = new FileInputStream(databaseFile);
-                 GZIPInputStream gin = new GZIPInputStream(in)) {
-
-                Variable var;
-                while ((var = readVariable(gin)) != null) {
-                    database.put(var.name, var.value);
-                }
-            } catch (Exception e) {
-                isRunning = false;
-                throw new RuntimeException(e);
-            }
-        }
-
         try (ByteArrayOutputStream bout = new ByteArrayOutputStream()) {
             while (isRunning) {
                 SocketChannel channel = server.accept();
-                System.out.println("New connection from " + channel.getRemoteAddress());
 
-                ByteBuffer buffer = ByteBuffer.allocate(4);
-                int len = channel.read(buffer);
+                ByteBuffer buffer = ByteBuffer.allocate(1024);
+                int len;
 
-                if (len == -1) continue;
-                int size = buffer.getInt(0);
+                while ((len = channel.read(buffer)) > 0) {
+                    bout.write(buffer.array(), 0, len);
+                }
 
+                channel.shutdownInput();
                 buffer.clear();
-                buffer = ByteBuffer.allocate(size);
-                len = channel.read(buffer);
 
-                if (len == -1) continue;
-                byte[] bytes = buffer.array();
-                bout.write(bytes, 0, len);
-
-                GZIPInputStream in = new GZIPInputStream(
-                        new ByteArrayInputStream(bout.toByteArray()));
+                ByteArrayInputStream in = new ByteArrayInputStream(bout.toByteArray());
                 ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                GZIPOutputStream gout = new GZIPOutputStream(stream);
 
                 if (checkUser(in)) {
                     int request = in.read();
 
-                    if (request == RequestType.PUT.getValue()) {
-                        Variable var = readVariable(in);
+                    switch (request) {
+                        case 0 -> {
+                            // PUT
+                            Variable var;
 
-                        if (var != null) {
-                            database.put(var.name, var.value);
-                            gout.write(ResponseType.OK.getValue());
-                        }
-                    } else if (request == RequestType.LOAD.getValue()) {
-                        if (!database.isEmpty()) {
-                            for (Map.Entry<String, Object> entry : database.entrySet()) {
-                                writeVariable(gout, entry.getKey(), entry.getValue());
+                            while ((var = readVariable(in)) != null) {
+                                database.put(var.name, var.value);
                             }
-                        } else {
-                            gout.write(ResponseType.NO_DATA.getValue());
+
+                            stream.write(ResponseType.OK.getValue());
                         }
+
+                        case 1 -> {
+                            // LOAD
+                            stream.write(ResponseType.OK.getValue());
+
+                            if (!database.isEmpty()) {
+                                for (Map.Entry<String, Object> entry : database.entrySet()) {
+                                    writeVariable(stream, entry.getKey(), entry.getValue());
+                                }
+                            } else {
+                                stream.write(ResponseType.NO_DATA.getValue());
+                            }
+                        }
+
+                        default -> stream.write(ResponseType.ERROR.getValue());
                     }
                 } else {
-                    gout.write(ResponseType.ERROR.getValue());
+                    stream.write(ResponseType.PASSWORD_ERROR.getValue());
                 }
 
+                stream.flush();
                 channel.write(ByteBuffer.wrap(stream.toByteArray()));
-                gout.close();
-                stream.close();
 
+                stream.close();
                 in.close();
                 channel.close();
                 bout.reset();

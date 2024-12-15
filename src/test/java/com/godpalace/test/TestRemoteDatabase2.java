@@ -7,10 +7,10 @@ import com.godpalace.data.database.RemoteDatabaseEngine;
 @RemoteDatabase
 public class TestRemoteDatabase2 {
     @Data
-    public static String name = "TestRemoteDatabase2";
+    public static String name;
 
     @Data
-    public static int age = 14;
+    public static int age;
 
     public static void main(String[] args) throws Exception {
         RemoteDatabaseEngine.init(TestRemoteDatabase2.class, null,

@@ -10,7 +10,10 @@ public class TestRemoteDatabase {
         RemoteDatabaseServer server = new RemoteDatabaseServer(
                 new InetSocketAddress("localhost", 8080),
                 new File("database.db"));
+
         server.addUser("admin", "admin123");
+        server.addData("name", "God Palace");
+        server.addData("age", 25);
 
         server.start();
     }

@@ -60,6 +60,7 @@ public class RemoteDatabaseEngine {
 
         out.write(nameBytes, 0, nameLength);
         out.write(valueBytes, 0, valueLength);
+        out.flush();
     }
 
     private static Variable readVariable(InputStream in) throws Exception {
@@ -105,21 +106,19 @@ public class RemoteDatabaseEngine {
             channel.socket().setSoTimeout(5000);
 
             ByteArrayOutputStream bout = new ByteArrayOutputStream();
-            GZIPOutputStream gout = new GZIPOutputStream(bout);
-            writeUserInfo(gout, username, password);
+            writeUserInfo(bout, username, password);
 
-            int request = RequestType.PUT.getValue();
-            gout.write(request);
+            int request = 0; // PUT
+            bout.write(request);
 
             for (Field field : fields) {
-                writeVariable(gout, field.getName(), field.get(instance));
+                writeVariable(bout, field.getName(), field.get(instance));
             }
 
-            gout.flush();
+            bout.flush();
             channel.write(ByteBuffer.wrap(bout.toByteArray()));
-            gout.close();
-            bout.close();
 
+            bout.close();
             channel.close();
         } catch (Exception e) {
             throw new RuntimeException("Error while saving variables to remote database", e);
@@ -146,6 +145,7 @@ public class RemoteDatabaseEngine {
 
         bout.write(usernameBytes, 0, nameLength);
         bout.write(passwordBytes, 0, passwordLength);
+        bout.flush();
     }
 
     private static HashMap<String, Object> loadVariables(
@@ -156,25 +156,14 @@ public class RemoteDatabaseEngine {
         channel.socket().setSoTimeout(3000);
 
         ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        ByteArrayOutputStream tout = new ByteArrayOutputStream();
-        GZIPOutputStream gout = new GZIPOutputStream(bout);
-        writeUserInfo(tout, username, password);
+        writeUserInfo(bout, username, password);
 
-        int request = RequestType.LOAD.getValue();
-        tout.write(request);
-        tout.flush();
-
-        int bytesLen = tout.size();
-        bout.write(bytesLen >> 24 & 0xff);
-        bout.write(bytesLen >> 16 & 0xff);
-        bout.write(bytesLen >> 8 & 0xff);
-        bout.write(bytesLen & 0xff);
-
-        bout.write(tout.toByteArray());
-        tout.close();
+        int request = 1; // LOAD
+        bout.write(request);
+        bout.flush();
 
         channel.write(ByteBuffer.wrap(bout.toByteArray()));
-        gout.close();
+        channel.shutdownOutput();
         bout.close();
 
         bout = new ByteArrayOutputStream();
@@ -185,24 +174,26 @@ public class RemoteDatabaseEngine {
             bout.write(buffer.array(), 0, len);
         }
 
-        GZIPInputStream gin = new GZIPInputStream(new ByteArrayInputStream(bout.toByteArray()));
-        int response = gin.read();
+        ByteArrayInputStream in = new ByteArrayInputStream(bout.toByteArray());
+        int response = in.read();
 
         if (response != ResponseType.NO_DATA.getValue()) {
             if (response == ResponseType.OK.getValue()) {
-                System.out.println("Loading variables from remote database");
                 Variable var;
 
-                while ((var = readVariable(gin)) != null) {
+                while ((var = readVariable(in)) != null) {
                     variables.put(var.name, var.value);
                 }
-                System.out.println(6);
+            } else if (response == ResponseType.PASSWORD_ERROR.getValue()) {
+                throw new IllegalArgumentException("Username or password is wrong");
             } else if (response == ResponseType.ERROR.getValue()) {
                 throw new Exception("Error while loading variables from remote database");
+            } else {
+                throw new Exception("Unknown response from remote database: " + response);
             }
         }
 
-        gin.close();
+        in.close();
         bout.close();
         channel.close();
 
